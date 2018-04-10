@@ -5,7 +5,8 @@ from sqlalchemy import (
     Column,
     ForeignKey,
     Integer, String,
-    alias
+    alias,
+    or_
 )
 from sqlalchemy.orm import (
     sessionmaker,
@@ -117,15 +118,14 @@ accounts_view_select = (
         Company.name.label('company_name'),
         Company.phone.label('company_phone'),
         Company.website.label('website'),
-        ceo.id.label('ceo_id'),
-        ceo.name.label('ceo'),
-        primary_contact.id.label('primary_contact_id'),
-        primary_contact.name.label('primary_contact_name'),
-        primary_contact.phone.label('primary_contact_phone')
+        ceo.c.id.label('ceo_id'),
+        ceo.c.name.label('ceo'),
+        primary_contact.c.id.label('primary_contact_id'),
+        primary_contact.c.name.label('primary_contact_name'),
+        primary_contact.c.phone.label('primary_contact_phone')
         )
-    .outerjoin(ceo, ceo.id == Company.ceo_id)
-    .outerjoin(primary_contact, primary_contact.id == Company.primary_contact_id)
-
+    .outerjoin(ceo, ceo.c.id == Company.ceo_id)
+    .outerjoin(primary_contact, primary_contact.c.id == Company.primary_contact_id))
 
 def init_denormalized_view():
     """
@@ -179,17 +179,6 @@ account_view=Table(
     Column('primary_contact_phone', String)
 )
 
-account_view_mapping={
-    'name': ['company_name'],
-    'phone': ['company_phone'],
-    'website': ['website']
-}
-
-person_view_mapping={
-    'name': ['ceo', 'primary_contact_name'],
-    'phone': ['primary_contact_phone']
-}
-
 def update_denormalized_view(db, pk, table, envelope):
     """
     Args:
@@ -197,39 +186,24 @@ def update_denormalized_view(db, pk, table, envelope):
         envelope (dict): Debezium Envelope containing op, before, after, source, ts_ms keys.
     """
 
-    before=envelope['before']
-    after=envelope['after']
     op=envelope['op']
-
-    account_columns=set(['name', 'phone', 'website'])
-    person_columns=set(['name', 'phone'])
-
-    if op == 'u' and before:  # Update
+    if op == 'u':  # Update
         if table == 'accounts':
-            print("Updating Account\n")
-            print(envelope)
-            diff_acct_keys=[
-                key for key in after if key in account_columns and after[key] != before[key]]
-            if diff_acct_keys:
-                stmt=(update(account_view)
-                        .where(account_view.c.id == pk['payload']['id'])
-                        .values({'company_name': after['name'],
-                                 'company_phone': after['phone'],
-                                 'website': after['website']}))
-                db.execute(stmt)
-                db.commit()
-
+            subq_select = accounts_view_select.filter(Company.id == pk['payload']['id']).subquery()
+            stmt = (account_view.update()
+                .values(company_name=subq_select.c.company_name,
+                        company_phone=subq_select.c.company_phone,
+                        website=subq_select.c.website)
+                .where(account_view.c.id == subq_select.c.id))
+            db.execute(stmt)
         elif table == 'persons':
-            print("Updating Person")
-            diff_person_keys=[
-                key for key in after if key in person_columns and after[key] != before[key]]
-            if diff_person_keys:
-                stmt=(update(account_view)
-                        .where(account_view.c.primary_contact_id == pk['payload']['id'])
-                        .values({'primary_contact_name': after['name'],
-                                 'primary_contact_phone': after['phone']})
-                stmt=(update(account_view)
-                        .where(account_view.c.ceo_id == pk['payload']['id'])
-                        .values({'ceo_name': after['name']},
-                db.execute(stmt)
-                db.commit()
+            subq_select = accounts_view_select.filter(or_(ceo.c.id == pk['payload']['id'],
+                                                          primary_contact.c.id == pk['payload']['id'])).subquery()
+            stmt = (account_view.update()
+                .values(ceo=subq_select.c.ceo,
+                        primary_contact_name=subq_select.c.primary_contact_name,
+                        primary_contact_phone=subq_select.c.primary_contact_phone)
+                .where(or_(account_view.c.ceo_id == subq_select.c.ceo_id,
+                           account_view.c.primary_contact_id == subq_select.c.primary_contact_id))
+                )
+            db.execute(stmt)
