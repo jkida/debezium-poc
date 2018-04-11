@@ -13,8 +13,8 @@ curl -i -X POST -H "Accept:application/json" -H  "Content-Type:application/json"
 docker-compose run app python -c "from consumer import CDCConsumer; CDCConsumer().run();"
 
 
-# InitDB with Dummy Data - Creates the tables and inserts dummy data. 
-# Note: It doesnt insert data into the denormalized view. The consumer handles that by reading the create/update events.
+# InitDB with Dummy Data - Creates the tables and inserts dummy data 30K. 
+# Note: It doesnt insert data into the denormalized view. The consumer handles that automatically by reading the create/update events.
 
 docker-compose run --rm app python -c "from db import initdb, dummy_data; initdb(); dummy_data()"
 
@@ -48,5 +48,11 @@ docker-compose exec kafka /kafka/bin/kafka-console-consumer.sh --bootstrap-serve
     --property print.key=true \
     --topic dbserver1.public.companies
 
+
+# Stop Docker containers
+docker-compose stop
+
+# Destroy docker containers
+docker-compose down
 
 
