@@ -1,8 +1,9 @@
 #!/usr/bin/env python
 import threading, logging, time, json
+from datetime import datetime as dt
 
 from kafka import KafkaConsumer, KafkaProducer
-from db import Session, update_denormalized_view
+from db import Session, update_denormalized_view_batch
 
 kafka_server="kafka"
 kafka_port=9092
@@ -14,19 +15,16 @@ kafka_url=kafka_server+":"+ str(kafka_port)
 class CDCConsumer():
 
     def run(self):
-        consumer = KafkaConsumer(bootstrap_servers= kafka_url,
-                                 auto_offset_reset='earliest')
-        consumer.subscribe(pattern='dbserver1.public.*')
+        consumer = KafkaConsumer(bootstrap_servers=kafka_url,
+                                 group_id='denormalize-data-group')
+        consumer.subscribe(['dbserver1.public.companies', 'dbserver1.public.people', 'dbserver1.public.users'])
         db = Session()
 
-        for message in consumer:
-            data = json.loads(message.value)
-            pkey = json.loads(message.key)
-            tablename = message.topic.split(".")[-1]
-            envelope = data['payload']
-
-            update_denormalized_view(db, pkey, tablename, envelope)
-            db.commit()
+        while True:
+            chunk = consumer.poll(timeout_ms=1000)
+            if chunk:
+                update_denormalized_view_batch(db, chunk)
+                db.commit()
 
 if __name__ == "__main__":
     logging.basicConfig(
