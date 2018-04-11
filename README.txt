@@ -24,6 +24,22 @@ psql -h localhost -U user poc
 # Password: pass
 # You can make changes directly to the companies, people and users tables and see the denormalized table company_view_denormalized get updated. 
 
+## The query that is being denormalized
+SELECT companies.id,
+       companies.name AS company_name,
+       companies.phone AS company_phone,
+       companies.website AS company_website,
+       ceo.name AS ceo_name,
+       primary_contact.name AS primary_contact_name,
+       primary_contact.phone AS primary_contact_phone,
+       sold_by.name AS sold_by_name,
+       manager.name as sold_by_manager_name
+FROM companies
+LEFT JOIN people as ceo ON ceo.id = companies.ceo_id
+LEFT JOIN people as primary_contact ON primary_contact.id = companies.primary_contact_id
+LEFT JOIN users as sold_by ON companies.sold_by_id = sold_by.id
+LEFT JOIN users as manager ON manager.id = sold_by.manager_id
+
 
 # Note: To get a peek into the Debezium kafka message structure
 
@@ -31,3 +47,6 @@ docker-compose exec kafka /kafka/bin/kafka-console-consumer.sh --bootstrap-serve
     --from-beginning \
     --property print.key=true \
     --topic dbserver1.public.companies
+
+
+
